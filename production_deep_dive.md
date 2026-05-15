@@ -90,6 +90,321 @@ server {
 
 ---
 
+### 🌐 Component 2.5: NETWORKING — Why Your URL Only Works on Your Laptop (And How Bitly Makes It Work Everywhere)
+
+This is the **most important concept** that bridges the gap between our local project and a real production system like Bitly.
+
+#### The Problem: localhost is YOU and only YOU
+
+When our app generates `http://localhost:8000/aB3xZ9`, this URL **only works on your computer**. If you send it to a friend, their browser will look for a server on THEIR computer at port 8000 — and find nothing.
+
+```
+YOUR LAPTOP                           YOUR FRIEND'S LAPTOP
+┌─────────────┐                       ┌─────────────┐
+│ Browser     │                       │ Browser     │
+│ localhost:  │                       │ localhost:  │
+│   8000      │                       │   8000      │
+│    ↓        │                       │    ↓        │
+│ ✅ FastAPI  │                       │ ❌ NOTHING  │
+│    running  │                       │    here!    │
+└─────────────┘                       └─────────────┘
+```
+
+**`localhost`** (also known as `127.0.0.1`) is a special address that always points to "this same machine". It never leaves your computer. No network packet is ever sent over the internet.
+
+#### How Bitly Solves This: The Journey From Domain to Server
+
+When Bitly generates `https://bit.ly/abc123`, ANYONE in the world can use it. Here's exactly how that works, step by step:
+
+#### Step 1: Bitly Buys a Domain Name
+
+Bitly owns the domain `bit.ly`. They purchased it from a **domain registrar** (like Namecheap or GoDaddy). This is like buying a street address for your house.
+
+```
+Domain: bit.ly
+  → Registered with: a domain registrar
+  → Costs: ~$10-50/year for normal domains
+  → .ly is Libya's country code (Bitly chose it because it's short!)
+```
+
+#### Step 2: DNS — The Internet's Phone Book
+
+When your friend types `bit.ly/abc123` in their browser, the browser doesn't know where `bit.ly` physically is. It asks the **Domain Name System (DNS)** to translate the name into an IP address.
+
+```
+Browser: "Hey DNS, where is bit.ly?"
+
+DNS Resolution Chain:
+┌──────────────────┐
+│  Browser Cache   │  ← Did I look this up recently? (cached ~60s)
+│  (fastest)       │
+└────────┬─────────┘
+         │ miss
+┌────────▼─────────┐
+│  OS DNS Cache    │  ← Did my computer look this up recently?
+│  (fast)          │
+└────────┬─────────┘
+         │ miss
+┌────────▼─────────┐
+│  Router / ISP    │  ← Ask my internet provider
+│  DNS Resolver    │
+└────────┬─────────┘
+         │ miss
+┌────────▼─────────┐
+│  Root DNS Server │  ← "I don't know bit.ly, but .ly is managed by
+│  (13 worldwide)  │     the Libya NIC. Ask them."
+└────────┬─────────┘
+         │
+┌────────▼─────────┐
+│  .ly TLD Server  │  ← "bit.ly? That's managed by Cloudflare DNS.
+│  (Libya NIC)     │     Ask them."
+└────────┬─────────┘
+         │
+┌────────▼─────────┐
+│  Cloudflare DNS  │  ← "bit.ly points to 67.199.248.12"
+│  (Authoritative) │
+└────────┘─────────┘
+
+Final Answer: bit.ly → 67.199.248.12
+```
+
+**This whole process takes about 20-50ms** the first time. After that, the result is cached and instant.
+
+**The DNS configuration looks like this:**
+```
+# Bitly's DNS records (configured in Cloudflare dashboard)
+bit.ly.     A       67.199.248.12      # IPv4 address
+bit.ly.     AAAA    2606:4700::1       # IPv6 address
+bit.ly.     CNAME   bitly.cdn.com.     # Sometimes points to a CDN instead
+```
+
+#### Step 3: Public IP Address — Your Server's Location on the Internet
+
+Your laptop has a **private IP** (like `192.168.1.5`) given by your home router. This address only works inside your home WiFi network — just like `localhost`, nobody outside can reach it.
+
+Bitly's servers have a **public IP** (like `67.199.248.12`) that is routable on the internet. Anyone in the world can send packets to this address.
+
+```
+PRIVATE IPs (not reachable from internet):     PUBLIC IPs (reachable from anywhere):
+  192.168.x.x  (your home WiFi)                 67.199.248.12  (Bitly's server)
+  10.0.x.x     (your office network)             34.102.136.180 (Google's server)
+  172.16.x.x   (Docker's internal network)       151.101.1.69   (Reddit's server)
+  127.0.0.1    (localhost — your own machine)
+```
+
+**How do you get a public IP?** You rent a server from a cloud provider:
+```
+# Example: Renting a server on AWS
+aws ec2 run-instances \
+  --instance-type t3.medium \
+  --image-id ami-0abcdef1234567890
+
+# AWS gives you a public IP: 54.210.167.99
+# Now anyone in the world can reach your server at 54.210.167.99:8000
+```
+
+#### Step 4: Port Mapping — Which App Answers the Door?
+
+A single server can run many apps. **Ports** are like apartment numbers in a building. When a request arrives at `67.199.248.12:443`, the server knows to send it to the HTTPS application.
+
+```
+Server: 67.199.248.12
+  ├── Port 80    → HTTP  (redirects to 443)
+  ├── Port 443   → HTTPS (Bitly's main app ← this is where bit.ly/abc123 goes)
+  ├── Port 5432  → PostgreSQL (blocked from internet, internal only!)
+  └── Port 6379  → Redis (blocked from internet, internal only!)
+```
+
+**Critical security note:** In production, PostgreSQL and Redis ports are NEVER exposed to the internet. They are only accessible from within the private network. In our project, we exposed them for learning purposes.
+
+**Our docker-compose.yml exposes ports like this:**
+```yaml
+services:
+  app:
+    ports:
+      - "8000:8000"    # Maps YOUR laptop's port 8000 → container's port 8000
+  postgres:
+    ports:
+      - "5432:5432"    # Exposed for learning (would be BLOCKED in production)
+  redis:
+    ports:
+      - "6379:6379"    # Exposed for learning (would be BLOCKED in production)
+```
+
+#### Step 5: HTTPS / TLS — Encrypting the Connection
+
+When you visit `https://bit.ly`, the "S" means the connection is encrypted using **TLS (Transport Layer Security)**. Without it, anyone on the same WiFi could read the URLs you're clicking.
+
+```
+WITHOUT HTTPS (HTTP):
+  Browser ──── "GET /abc123" ──────► Server
+                  ↑
+          Hacker on same WiFi
+          can see: "They're visiting abc123
+          which goes to embarrassing-website.com"
+
+WITH HTTPS:
+  Browser ──── "encrypted gibberish" ──────► Server
+                  ↑
+          Hacker sees: "aJ8x#kL2m..."
+          Can't read anything!
+```
+
+**How Bitly gets HTTPS:**
+```
+# 1. Get a TLS certificate (free from Let's Encrypt, or paid from DigiCert)
+certbot certonly --domain bit.ly --email admin@bitly.com
+
+# 2. Configure Nginx to use it
+server {
+    listen 443 ssl;
+    server_name bit.ly;
+
+    ssl_certificate     /etc/letsencrypt/live/bit.ly/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/bit.ly/privkey.pem;
+
+    location / {
+        proxy_pass http://api_servers;
+    }
+}
+
+# 3. Redirect HTTP → HTTPS (force encryption)
+server {
+    listen 80;
+    server_name bit.ly;
+    return 301 https://$host$request_uri;   # "Go use HTTPS instead"
+}
+```
+
+**In our project:** We use plain HTTP (`http://localhost:8000`) because encryption on localhost is unnecessary — the data never leaves your machine.
+
+#### Step 6: Docker Networking — How Our Containers Talk to Each Other
+
+Even in our local project, there IS networking happening — between the Docker containers. Docker creates a **private virtual network** so the app, PostgreSQL, and Redis can find each other by name.
+
+```
+┌─────────────── Docker Network: "url-shortener_default" ───────────────┐
+│                  (Private subnet: 172.18.0.0/16)                      │
+│                                                                       │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐             │
+│  │  app          │    │  postgres    │    │  redis       │             │
+│  │  172.18.0.4   │    │  172.18.0.2  │    │  172.18.0.3  │             │
+│  │               │    │              │    │              │             │
+│  │  Connects to: │    │  Listens on: │    │  Listens on: │             │
+│  │  postgres:5432│───►│  5432        │    │  6379        │             │
+│  │  redis:6379   │───────────────────────►│              │             │
+│  └──────────────┘    └──────────────┘    └──────────────┘             │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+         │
+    Port 8000 is mapped to your laptop
+         │
+         ▼
+   You access: http://localhost:8000
+```
+
+**How does the app find "postgres" and "redis" by name?** Docker has a built-in DNS server. When our code says `host="postgres"`, Docker's DNS resolves it to `172.18.0.2`. This is configured in our `app/config.py`:
+
+```python
+# app/config.py
+DB_HOST: str = os.getenv("DB_HOST", "postgres")    # Docker resolves this!
+REDIS_HOST: str = os.getenv("REDIS_HOST", "redis")  # Docker resolves this!
+```
+
+You can verify this by running:
+```bash
+# See the Docker network
+docker network ls
+
+# Inspect the network to see all containers and their IPs
+docker network inspect url-shortener_default
+```
+
+#### The Full Network Journey: Our Project vs Bitly
+
+```
+═══════════════════════════════════════════════════════════════
+OUR PROJECT (localhost — only works on your machine)
+═══════════════════════════════════════════════════════════════
+
+You type: http://localhost:8000/aB3xZ9
+    │
+    ▼
+Browser: "localhost means ME. Connect to port 8000 on this machine."
+    │
+    ▼
+Docker port mapping: Your port 8000 → Container's port 8000
+    │
+    ▼
+FastAPI receives request → Redis → PostgreSQL → Redirect
+    │
+    ▼
+Browser goes to: https://google.com
+
+
+═══════════════════════════════════════════════════════════════
+BITLY (public — works for anyone on Earth)
+═══════════════════════════════════════════════════════════════
+
+Someone in Tokyo types: https://bit.ly/abc123
+    │
+    ▼
+Browser: "What IP is bit.ly?" → DNS lookup → 67.199.248.12
+    │
+    ▼
+TLS Handshake: Browser + Server agree on encryption keys (30ms)
+    │
+    ▼
+Encrypted request travels: Tokyo → undersea cable → US data center
+    │
+    ▼
+Cloudflare CDN: "I have this cached!" → 301 Redirect (fastest path)
+    OR
+    ▼
+Load Balancer: Picks server #2 (least busy)
+    │
+    ▼
+FastAPI receives request → Redis → PostgreSQL → Redirect
+    │
+    ▼
+301 Redirect sent back (encrypted) → Tokyo
+    │
+    ▼
+Browser goes to: https://google.com
+
+Total time: ~100-200ms (most of it is network latency, not code!)
+```
+
+#### What You Would Need to Make OUR Project Public
+
+If you wanted to make your ZipURL accessible to anyone, here is exactly what you'd need:
+
+```
+Step 1: Get a cloud server
+  → AWS EC2, DigitalOcean Droplet, or Railway/Render (free tiers exist)
+  → This gives you a PUBLIC IP (e.g., 54.210.167.99)
+
+Step 2: Buy a domain name
+  → e.g., zipurl.dev from Namecheap (~$10/year)
+
+Step 3: Point domain to server (DNS configuration)
+  → Add an A record: zipurl.dev → 54.210.167.99
+
+Step 4: Get HTTPS certificate
+  → Use Let's Encrypt (free) with certbot
+
+Step 5: Deploy your Docker Compose on the cloud server
+  → docker compose up --build -d
+
+Step 6: Configure firewall
+  → Allow: port 80 (HTTP), port 443 (HTTPS)
+  → Block: port 5432 (Postgres), port 6379 (Redis)
+
+Result: https://zipurl.dev/aB3xZ9 works for ANYONE in the world!
+```
+
+---
+
 ### Component 3: API Server / Backend (The Brain)
 
 **What it does:** This is the Python application that handles all the logic — creating short URLs, looking them up, and redirecting users.
@@ -379,6 +694,129 @@ Bitly's frontend is a full React app with dashboards, analytics charts, team man
 
 ---
 
+## 🚀 Advanced Production Concepts
+
+To scale from thousands of requests per day to **billions**, a URL shortener needs several advanced components that go beyond basic redirect logic.
+
+### 1. The Analytics Pipeline (How Bitly Makes Money)
+
+**The Concept:**
+Bitly doesn't just redirect you; it collects a massive amount of data on every single click. This data is aggregated and sold to marketers so they can track the performance of their campaigns.
+
+**What is tracked:**
+- **Timestamp:** When was the link clicked?
+- **Geo-location:** IP address mapped to Country/City (e.g., using MaxMind).
+- **User Agent:** Browser (Chrome/Safari) and Device (iOS/Android/Desktop).
+- **Referrer:** Did they come from Twitter, Facebook, or an email client?
+
+**How it works without slowing down redirects:**
+Bitly cannot afford to write all this data to PostgreSQL during the redirect — it would be too slow. Instead, they use an **asynchronous pipeline**:
+
+```python
+# During the redirect (fast path):
+@app.get("/{short_code}")
+def redirect(short_code: str, request: Request):
+    original_url = get_cached_url(short_code)
+    
+    # 1. Fire-and-forget: Send event to a message broker (Kafka/RabbitMQ)
+    event_data = {
+        "code": short_code,
+        "ip": request.client.host,
+        "user_agent": request.headers.get("User-Agent"),
+        "timestamp": time.time()
+    }
+    kafka_producer.send("click_events", event_data)  # Doesn't wait for a response
+    
+    # 2. Redirect user immediately
+    return RedirectResponse(original_url)
+
+# In the background (slow path):
+# A separate fleet of worker servers consumes "click_events" from Kafka,
+# parses the User Agent, does Geo-IP lookups, and writes the final aggregated
+# data to an analytics database (like ClickHouse or Amazon Redshift).
+```
+
+### 2. The Science of Redirects: 301 vs 302 vs 307
+
+When the server tells the browser to go to a new URL, it uses an HTTP status code. The code chosen has massive implications for SEO (Search Engine Optimization) and analytics.
+
+* **301 Moved Permanently:** Tells the browser (and Google), *"This short URL is permanently gone, replace it with the long URL."*
+  * **Pros:** Passes 100% of SEO "link juice" to the destination site.
+  * **Cons:** The browser caches it aggressively. If the user clicks the short link again tomorrow, the browser redirects them *locally* without asking Bitly's server! Bitly loses the analytics data for that second click.
+* **302 Found (Temporary):** Tells the browser, *"Go here for now, but ask me again next time."*
+  * **Pros:** The browser won't cache it, so every click hits Bitly's servers (perfect for analytics).
+  * **Cons:** Search engines don't pass SEO credit to the final URL because they think the redirect might change.
+* **307 Temporary Redirect:** The modern replacement for 302. It strictly enforces that the HTTP method (GET/POST) remains exactly the same after the redirect.
+
+**What Bitly uses:** By default, Bitly uses **301 Redirects**. They prioritize SEO value for their customers over getting 100% perfect click tracking on repeat local clicks. In our ZipURL app, we used `307` because it's the FastAPI default.
+
+### 3. Rate Limiting & Abuse Protection
+
+**The Threat:**
+- **Spammers:** Try to shorten 10,000 links to phishing sites per second.
+- **DDoS Attacks:** Flood the `/{short_code}` endpoint to crash the database.
+
+**The Solution:**
+Bitly implements strict rate limiting, usually enforced at the Load Balancer, API Gateway, or using Redis.
+
+```python
+# Example: Rate limiting using Redis Token Bucket
+def check_rate_limit(client_ip: str):
+    # Allow max 10 shortens per minute per IP
+    key = f"rate_limit:shorten:{client_ip}"
+    
+    # Increment the counter for this IP
+    requests = redis_client.incr(key)
+    
+    # If this is their first request, set the key to expire in 60 seconds
+    if requests == 1:
+        redis_client.expire(key, 60)
+        
+    if requests > 10:
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+```
+
+They also use real-time threat intelligence APIs (like Google Safe Browsing) to block attempts to shorten known malware or phishing URLs.
+
+### 4. Custom Aliases (Vanity URLs) & Expiration
+
+**Custom Aliases:**
+Instead of `bit.ly/aB3xZ9`, brands want `bit.ly/summer-sale`.
+- **Database impact:** The `short_code` column must allow variable lengths (not just exactly 6 chars).
+- **Collision handling:** The system must check if the custom alias is already taken before saving it.
+
+**Link Expiration:**
+Promotional links often need to die after a certain date.
+- **How it's implemented:** Add an `expires_at` column (TIMESTAMP) to the PostgreSQL table.
+- **The code check:**
+```python
+if row["expires_at"] and row["expires_at"] < datetime.utcnow():
+    raise HTTPException(status_code=410, detail="This link has expired (HTTP 410 Gone)")
+```
+
+### 5. Monitoring, Alerting, & Observability
+
+If Bitly goes down, half the links on the internet stop working. They need to know about problems *before* users complain.
+
+**The Tools:**
+- **Metrics (Prometheus & Grafana):** Tracks "How many redirects per second?", "What is the CPU usage?", "How many 500 Errors are happening?".
+- **Logs (ELK Stack - Elasticsearch, Logstash, Kibana):** Stores every server log to trace exactly why a specific request failed.
+- **Alerting (PagerDuty):** If the database latency goes above 50ms, or error rates exceed 1%, PagerDuty immediately calls/texts the On-Call Engineer (even at 3 AM).
+
+**Example Application Metric:**
+```python
+# Tracking how long it takes to talk to the database
+start_time = time.time()
+with get_cursor() as cur:
+    cur.execute("SELECT ...")
+duration_ms = (time.time() - start_time) * 1000
+
+# Send metric to monitoring system
+metrics_client.histogram("db_query_latency", duration_ms)
+```
+
+---
+
 ## 📊 The Complete Data Flow (End to End)
 
 ### Creating a Short URL
@@ -448,3 +886,9 @@ Browser automatically navigates to https://google.com
 | **Named Volume** | Docker storage that persists across restarts | `docker-compose.yml` — `pgdata`, `redisdata` |
 | **Base62 Encoding** | Using a-z, A-Z, 0-9 to make short codes | `app/utils.py` — `ALPHABET = string.ascii_letters + string.digits` |
 | **Pydantic Validation** | Auto-checking that input data is correct | `app/models.py` — `url: HttpUrl` rejects bad URLs |
+| **DNS** | Translates domain names (bit.ly) to IP addresses (67.199.248.12) | Production only — we use `localhost` |
+| **Public vs Private IP** | Private IPs work locally, public IPs are reachable from anywhere | `docker-compose.yml` — containers use private Docker IPs |
+| **Port Mapping** | Maps a port on your machine to a port inside a container | `docker-compose.yml` — `"8000:8000"` |
+| **HTTPS / TLS** | Encrypts the connection between browser and server | Production only — uses certificates from Let's Encrypt |
+| **Docker Networking** | Virtual network letting containers find each other by name | `app/config.py` — `DB_HOST="postgres"` resolves via Docker DNS |
+
