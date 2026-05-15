@@ -1,0 +1,82 @@
+# ────────────────────────────────────────────────────────────────
+# URL Shortener — Docker Compose Stack
+# ────────────────────────────────────────────────────────────────
+# Services:
+#   1. app        — FastAPI URL Shortener (port 8000)
+#   2. postgres   — PostgreSQL 16 database (port 5432)
+#   3. redis      — Redis 7 cache (port 6379)
+#
+# Run with:  docker compose up --build
+# Stop with: docker compose down
+# Nuke all:  docker compose down -v  (removes data volumes too)
+# ────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI Application ─────────────────────────────────────
+  app:
+    build: .
+    container_name: url-shortener-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=shortener_db
+      - DB_USER=shortener_user
+      - DB_PASSWORD=shortener_pass
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - BASE_URL=http://localhost:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── PostgreSQL 16 ───────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: url-shortener-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: shortener_db
+      POSTGRES_USER: shortener_user
+      POSTGRES_PASSWORD: shortener_pass
+    volumes:
+      # Named volume = data persists across container restarts
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortener_user -d shortener_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis 7 ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: url-shortener-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      # Named volume = cached data persists across container restarts
+      - redisdata:/data
+    # Enable AOF persistence so Redis data survives restarts
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+
+# ── Persistent Volumes ──────────────────────────────────────────
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔗 URL Shortener — Phase 0</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Lucide Icons for small icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+    <div class="container">
+        <!-- ── Header ── -->
+        <header>
+            <h1>ZipURL</h1>
+            <p class="subtitle">Shorten your links with Redis-powered speed</p>
+        </header>
+
+        <!-- ── Main Interaction Card ── -->
+        <main class="main-card">
+            
+            <!-- Input Form -->
+            <form id="shorten-form" class="input-group">
+                <input 
+                    type="url" 
+                    id="url-input" 
+                    placeholder="Paste your long URL here..." 
+                    required
+                >
+                <button type="submit" id="submit-btn">
+                    Shorten
+                    <i data-lucide="arrow-right" style="margin-left: 0.5rem; width: 18px;"></i>
+                </button>
+            </form>
+
+            <!-- Result Area (Hidden by default) -->
+            <div id="result-area" class="result-section">
+                <div class="result-label">Your shortened link</div>
+                <div class="result-url-wrapper">
+                    <a href="#" id="short-url" class="short-url" target="_blank"></a>
+                    <button id="copy-btn" class="copy-btn">
+                        <i data-lucide="copy" style="width: 14px; margin-right: 0.25rem;"></i>
+                        Copy
+                    </button>
+                </div>
+            </div>
+
+            <!-- ── Recent URLs ── -->
+            <div class="recent-section">
+                <div class="recent-title">Recent Links</div>
+                <ul id="recent-list" class="recent-list">
+                    <!-- Loaded dynamically via JS -->
+                    <li class="recent-item" style="color: var(--text-secondary); justify-content: center;">
+                        Loading recent links...
+                    </li>
+                </ul>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">Copied to clipboard!</div>
+
+    <!-- Custom Logic -->
+    <script src="/static/script.js"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>

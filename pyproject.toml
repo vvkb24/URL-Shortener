@@ -1,0 +1,47 @@
+# ── Project Metadata ────────────────────────────────────────────
+[project]
+name = "url-shortener"
+version = "1.0.0"
+description = "A mini Bitly clone — Phase 0 learning project"
+requires-python = ">=3.12"
+
+# ── Ruff (linter + formatter, replaces flake8 + isort) ──────────
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade (use modern Python syntax)
+    "B",    # flake8-bugbear (common bugs)
+    "SIM",  # flake8-simplify
+]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ── Black (code formatter) ──────────────────────────────────────
+[tool.black]
+target-version = ["py312"]
+line-length = 88
+
+# ── Mypy (static type checker) ──────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+# ── Pytest ──────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
